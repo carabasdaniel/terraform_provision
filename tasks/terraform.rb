@@ -44,8 +44,9 @@ end
 
 def tear_down(node_name, inventory_location)
   include PuppetLitmus::InventoryManipulation
-  # TO DO: terraform destroy
-
+  command = 'terraform destroy'
+  output = run_local_command(command)
+  
   inventory_full_path = File.join(inventory_location, 'inventory.yaml')
   if File.file?(inventory_full_path)
     inventory_hash = inventory_hash_from_inventory_file(inventory_full_path)
