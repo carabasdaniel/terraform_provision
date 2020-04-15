@@ -30,6 +30,6 @@
     }
   },
   "files": [
-    "provision/lib/task_helper.rb"
+    "terraform_provision/lib/task_helper.rb"
   ]
 }
