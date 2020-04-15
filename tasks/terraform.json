@@ -3,5 +3,33 @@
   "supports_noop": false,
   "description": "A short description of this task",
   "parameters": {
-  }
+    "action": {
+      "description": "Action to perform, tear_down or provision",
+      "type": "Enum[provision, tear_down]",
+      "default": "provision"
+    },
+    "append_cli": {
+      "description": "Append to the run command",
+      "type": "Optional[String[1]]"
+    },
+    "inventory": {
+      "description": "Location of the inventory file",
+      "type": "Optional[String[1]]"
+    },
+    "node_name": {
+      "description": "The name of the node",
+      "type": "Optional[String[1]]"
+    },
+    "platform": {
+      "description": "Platform to provision, eg  ubuntu:14.04",
+      "type": "Optional[String[1]]"
+    },
+    "vars": {
+      "description": "YAML string of key/value pairs to add to the inventory vars section",
+      "type": "Optional[String[1]]"
+    }
+  },
+  "files": [
+    "provision/lib/task_helper.rb"
+  ]
 }
