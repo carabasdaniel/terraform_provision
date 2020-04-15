@@ -16,31 +16,43 @@ def provision(platform, inventory_location, vars)
   run_local_command(init)
   command = 'terraform apply -auto-approve'
   output = run_local_command(command)
-  # TODO: grab data from provisioned resourcces and fill in the nodes step by step from the results of terraform apply
-  user = 'user_after_apply'
-  password = 'password_after_apply'
-  hostname = 'tfstate_after_apply'
+  # TODO: grab data from provisioned resources tfstate and fill in the nodes step by step from the results of terraform apply
+  raise "Failed to load data from terraform tfstate file" unless File.exist?('terraform.tfstate')
+  tfstate_data=JSON.parse(File.read('terraform.tfstate'))
   unless vars.nil?
     var_hash = YAML.safe_load(vars)
     node['vars'] = var_hash
   end
 
-  if platform_uses_ssh(platform)
-    node = { 'uri' => hostname,
-             'config' => { 'transport' => 'ssh', 'ssh' => { 'user' => '#{user}', 'password' => '#{password}', 'host-key-check' => false } },
-             'facts' => { 'provisioner' => 'terraform', 'platform' => platform } }
-    group_name = 'ssh_nodes'
-  else
-    node = { 'uri' => hostname,
-             'config' => { 'transport' => 'winrm', 'winrm' => { 'user' => 'Administrator', 'password' => '#{password}', 'ssl' => false } },
-             'facts' => { 'provisioner' => 'terraform', 'platform' => platform } }
-    group_name = 'winrm_nodes'
+  nodes = []
+  tfstate_data['resources'].each do |machines|
+    machines['instances'].each do |machine|
+      if machine['attributes']['ssh_config']
+        machine['attributes']['ssh_config'].each do |config|
+         user = config['user']
+         hostname = config['host']+":"+config['port']
+         private_key = '~/.vagrant.d/insecure_private_key'
+         node = { 'uri' => hostname,
+                  'config' => { 'transport' => 'ssh', 'ssh' => { 'user' => user, 'private-key' => private_key, 'host-key-check' => false, 'port' => config['port'].to_i, 'run-as' => 'root' } },
+                 'facts' => { 'provisioner' => 'terraform_provision::terraform' } }
+         group_name = 'ssh_nodes'
+         nodes << {:node => node,:group => group_name}
+        end
+       else
+         node = { 'uri' => hostname,
+                  'config' => { 'transport' => 'winrm', 'winrm' => { 'user' => 'Administrator', 'password' => '#{password}', 'ssl' => false } },
+                  'facts' => { 'provisioner' => 'terraform_provision::terraform' } }
+         group_name = 'winrm_nodes'
+       end
+    end
   end
   inventory_full_path = File.join(inventory_location, 'inventory.yaml')
   inventory_hash = get_inventory_hash(inventory_full_path)
-  add_node_to_group(inventory_hash, node, group_name)
+  nodes.each do |item|
+    add_node_to_group(inventory_hash, item[:node], item[:group])
+  end
   File.open(inventory_full_path, 'w') { |f| f.write inventory_hash.to_yaml }
-  { status: 'ok', node_name: hostname, node: node }
+  { status: 'ok', nodes: nodes }
 end
 
 def tear_down(node_name, inventory_location)
