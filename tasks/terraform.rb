@@ -12,7 +12,7 @@ def provision(platform, inventory_location, vars)
 
   # this runs inside the module directory so there is a need for the tf files to be there
   # the terraform init command will ensure that all plugins will be prepared before applying the tf files
-  init = 'terraform init'
+  init = 'terraform init -input=false'
   run_local_command(init)
   command = 'terraform apply -auto-approve'
   output = run_local_command(command)
