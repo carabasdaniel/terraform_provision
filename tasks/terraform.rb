@@ -19,6 +19,7 @@ def provision(platform, inventory_location, vars)
   # TODO: grab data from provisioned resourcces and fill in the nodes step by step from the results of terraform apply
   user = 'user_after_apply'
   password = 'password_after_apply'
+  hostname = 'tfstate_after_apply'
   unless vars.nil?
     var_hash = YAML.safe_load(vars)
     node['vars'] = var_hash
@@ -44,7 +45,7 @@ end
 
 def tear_down(node_name, inventory_location)
   include PuppetLitmus::InventoryManipulation
-  command = 'terraform destroy'
+  command = 'terraform destroy -auto-approve'
   output = run_local_command(command)
   
   inventory_full_path = File.join(inventory_location, 'inventory.yaml')
