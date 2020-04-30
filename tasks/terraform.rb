@@ -1,28 +1,30 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'bolt_spec/run'
 require 'json'
 require 'net/http'
 require 'yaml'
 require 'puppet_litmus'
 require_relative '../lib/task_helper'
 
+DEFAULT_CONFIG_DATA ||= { 'modulepath' => File.join(Dir.pwd, 'spec', 'fixtures', 'modules') }
+
 def provision(platform, inventory_location, vars)
+  include ::BoltSpec::Run
   include PuppetLitmus::InventoryManipulation
 
-  # this runs inside the module directory so there is a need for the tf files to be there
-  # the terraform init command will ensure that all plugins will be prepared before applying the tf files
-  init = 'terraform init -input=false'
-  run_local_command(init)
-  command = 'terraform apply -auto-approve'
-  output = run_local_command(command)
-  # TODO: grab data from provisioned resources tfstate and fill in the nodes step by step from the results of terraform apply
-  raise "Failed to load data from terraform tfstate file" unless File.exist?('terraform.tfstate')
-  tfstate_data=JSON.parse(File.read('terraform.tfstate'))
-  unless vars.nil?
-    var_hash = YAML.safe_load(vars)
-    node['vars'] = var_hash
+  if vars.nil? 
+    vars = {}   
+    vars['dir'] = Dir.pwd
+    vars['state'] = 'terraform.tfstate'
   end
+
+  run_task('terraform::initialize','localhost', {'dir' => "#{vars['dir']}"}, config: DEFAULT_CONFIG_DATA)
+  run_task('terraform::apply','localhost', {'dir' => "#{vars['dir']}"}, config: DEFAULT_CONFIG_DATA)
+
+
+  tfstate_data=JSON.parse(File.read(vars['state']))
 
   nodes = []
   tfstate_data['resources'].each do |machines|
@@ -31,35 +33,44 @@ def provision(platform, inventory_location, vars)
         machine['attributes']['ssh_config'].each do |config|
          user = config['user']
          hostname = config['host']+":"+config['port']
-         private_key = '~/.vagrant.d/insecure_private_key'
+
+         key_file_name = "#{Dir.pwd}/#{machines['name']}.key" 
+         File.write(key_file_name, config['private_key'])
+         File.chmod(0600, key_file_name)
+         private_key = key_file_name
+
          node = { 'uri' => hostname,
                   'config' => { 'transport' => 'ssh', 'ssh' => { 'user' => user, 'private-key' => private_key, 'host-key-check' => false, 'port' => config['port'].to_i, 'run-as' => 'root' } },
                  'facts' => { 'provisioner' => 'terraform_provision::terraform' } }
          group_name = 'ssh_nodes'
          nodes << {:node => node,:group => group_name}
         end
-       else
-         node = { 'uri' => hostname,
-                  'config' => { 'transport' => 'winrm', 'winrm' => { 'user' => 'Administrator', 'password' => '#{password}', 'ssl' => false } },
-                  'facts' => { 'provisioner' => 'terraform_provision::terraform' } }
-         group_name = 'winrm_nodes'
-       end
+      end
     end
   end
+
   inventory_full_path = File.join(inventory_location, 'inventory.yaml')
   inventory_hash = get_inventory_hash(inventory_full_path)
+
   nodes.each do |item|
     add_node_to_group(inventory_hash, item[:node], item[:group])
   end
   File.open(inventory_full_path, 'w') { |f| f.write inventory_hash.to_yaml }
-  { status: 'ok', nodes: nodes }
+
+  { status: 'ok' }
 end
 
-def tear_down(node_name, inventory_location)
+def tear_down(node_name, inventory_location, vars)
+  include ::BoltSpec::Run
   include PuppetLitmus::InventoryManipulation
-  command = 'terraform destroy -auto-approve'
-  output = run_local_command(command)
-  
+
+  if vars.nil? 
+    vars = {}   
+    vars['dir'] = Dir.pwd
+  end
+
+  run_task('terraform::destroy','localhost', {'dir' => "#{vars['dir']}"}, config: DEFAULT_CONFIG_DATA)
+
   inventory_full_path = File.join(inventory_location, 'inventory.yaml')
   if File.file?(inventory_full_path)
     inventory_hash = inventory_hash_from_inventory_file(inventory_full_path)
@@ -71,16 +82,16 @@ def tear_down(node_name, inventory_location)
 end
 
 params = JSON.parse(STDIN.read)
-platform = params['platform']
 action = params['action']
-node_name = params['node_name']
+platform = params['platform'] # required by litmus on provision run
+node_name = params['node_name'] # required by litmus on tear_down run
 inventory_location = sanitise_inventory_location(params['inventory'])
 vars = params['vars']
 raise 'specify a node_name when tearing down' if action == 'tear_down' && node_name.nil?
 
 begin
   result = provision(platform, inventory_location, vars) if action == 'provision'
-  result = tear_down(node_name, inventory_location) if action == 'tear_down'
+  result = tear_down(node_name, inventory_location, vars) if action == 'tear_down'
   puts result.to_json
   exit 0
 rescue StandardError => e

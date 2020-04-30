@@ -6,7 +6,10 @@
   "license": "MIT",
   "source": "",
   "dependencies": [
-
+    {
+      "name": "puppetlabs/terraform",
+      "version_requirement": "< 1.0.0"
+    }
   ],
   "operatingsystem_support": [
     {
